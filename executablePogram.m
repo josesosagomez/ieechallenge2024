@@ -55,8 +55,7 @@ tsweep = getFMCWSweepTime(tpulse,tpulse);
 sweepslope = rampbandwidth / tsweep;
 fmaxbeat = sweepslope * range2time(maxRange);
 fs = max(ceil(2*fmaxbeat),520834);
-namesExe = ["arms", "legs","bow","squad","lounges","knee"];
-resExe = ["Good technique!", "Bad technique!", "That's the incorrect exercise!"];
+load("availableExercises.mat");
 
 %%
 
@@ -81,7 +80,19 @@ while typeExer ~= 7
         repetitions = [repetitions numExe];
     end
 end
+
 %%
+
+chosenExercises = {};
+for i = 1:size(exercises,2)
+    chosenExercises{i} = char(availableExercises(exercises(i)));
+end
+
+doneCorrectly = zeros(size(repetitions));
+
+%%
+fprintf("\n");
+disp('Starting radar connection...')
 
 % See fmcw demo for these setup steps
 [rx,tx,bf,bf_TDD,model] = setupFMCWRadar(fc,fs,tpulse,tsweep,nPulses,rampbandwidth);
@@ -93,6 +104,9 @@ rx();
 amp = 0.9 * 2^15;
 txWaveform = amp*ones(rx.SamplesPerFrame,2);
 
+disp('Radar connected.')
+fprintf("\n");
+
 %% Next, run continuously for nCaptures
 
 numberFrames = 20;
@@ -102,6 +116,14 @@ rd = phased.RangeDopplerResponse(DopplerOutput="Speed",...
 
 f1 = figure;
 ax = axes(f1);
+
+exerciseTable = table(chosenExercises', repetitions', doneCorrectly', ...
+                      'VariableNames', {'Exercise', 'Repetitions', 'DoneCorrectly'});
+displayCenteredTable(exerciseTable);
+
+fprintf('\n');
+fprintf('Please perfom exercise: %s', upper(char(availableExercises(exercises(1)))));
+fprintf('\n');
 
 fprintf('\n');
 fprintf('Starting in.. 3 ');
@@ -115,12 +137,14 @@ fprintf('\n');
 h = 1;
 
 for t = 1:length(exercises)
-    modelName = namesExe(exercises(t));
+    modelName = availableExercises(exercises(t));
     model = load("models\" + modelName + "_CNN.mat");
+    load("exercise_levels\" + modelName + "_level.mat");
     nCaptures = repetitions(t)*numberFrames + 10;
     radarFrames = zeros(267,256,20);
+    i = 1;
 
-    for i = 1:nCaptures
+    while i <= nCaptures
         data = captureTransmitWaveform(txWaveform,rx,tx,bf);
         
         if i > 10
@@ -139,12 +163,35 @@ for t = 1:length(exercises)
                     temp = rangeNormalizedFiltered(radarFrames, rd);
                     dataNet(:,:,:,1) = temp;
                     [Pred, ~] = classify(model.net,dataNet);
+                    Pred = str2double(cellstr(Pred));
                     fprintf('\n');
-                    fprintf('Result: %s', resExe(str2double(cellstr(Pred))));
+                    fprintf('Result: %s', resExe(Pred));
                     fprintf('\n');
                     h = 1;
+
+                    if(Pred == 1)
+                        doneCorrectly(t) = doneCorrectly(t) + 1; 
+                    end
+
+                    exerciseTable = table(chosenExercises', repetitions', doneCorrectly', ...
+                      'VariableNames', {'Exercise', 'Repetitions', 'DoneCorrectly'});
+                    displayCenteredTable(exerciseTable);
+
+                    if(Pred ~= 1)
+                        fprintf("Let's try again!");
+                        fprintf('\n');
+                        nCaptures = nCaptures + 20;
+                        fprintf('\n');
+                        fprintf('Please perfom exercise again: %s', upper(char(availableExercises(exercises(t)))));
+                        fprintf('\n');
+                    end
                     
                     if t ~= length(exercises) || i ~= nCaptures
+                        if(Pred == 1)
+                            fprintf('\n');
+                            fprintf('Please perfom exercise: %s', upper(char(availableExercises(exercises(t+1)))));
+                            fprintf('\n');
+                        end
                         fprintf('\n');
                         fprintf('Starting in.. 6 ');
                         pause(1);
@@ -163,6 +210,9 @@ for t = 1:length(exercises)
                 end
             end
         end
+
+        i = i + 1;
+
     end
 end
 
@@ -172,4 +222,3 @@ fprintf('\n');
 
 % Disable TDD Trigger so we can operate in Receive only mode
 disableTddTrigger(bf_TDD)
-

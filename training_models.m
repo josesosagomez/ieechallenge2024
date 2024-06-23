@@ -89,6 +89,7 @@ layers = [
 
     convolution3dLayer(3, 32, 'Padding', 'same')
     batchNormalizationLayer
+
     reluLayer
 
     fullyConnectedLayer(128)
